@@ -16,6 +16,11 @@ type AvailabilityService struct {
 	Book  repository.BookingRepository
 }
 
+type Slot struct {
+	StartUTC time.Time `json:"start_utc"`
+	EndUTC   time.Time `json:"end_utc"`
+}
+
 func NewAvailabilityService(db repository.Querier, ar repository.AvailabilityRepository, br repository.BookingRepository) *AvailabilityService {
 	return &AvailabilityService{DB: db, Avail: ar, Book: br}
 }
@@ -50,12 +55,12 @@ func (s *AvailabilityService) ListBookings(ctx context.Context, userID string, f
 	return s.Book.ListBookings(ctx, s.DB, userID, from, to, filtered)
 }
 
-func (s *AvailabilityService) GenerateAvailableSlots(ctx context.Context, userID string, fromUTC, toUTC time.Time) ([]app.Slot, error) {
+func (s *AvailabilityService) GenerateAvailableSlots(ctx context.Context, userID string, fromUTC, toUTC time.Time) ([]Slot, error) {
 	rules, err := s.Avail.ListAvailabilityRules(ctx, s.DB, userID)
 	if err != nil { return nil, err }
 	if len(rules) == 0 { return nil, nil }
 
-	var candidate []app.Slot
+	var candidate []Slot
 	startDate := fromUTC.Truncate(24 * time.Hour)
 	endDate := toUTC.Truncate(24 * time.Hour)
 	for day := startDate; !day.After(endDate); day = day.Add(24 * time.Hour) {
@@ -73,7 +78,7 @@ func (s *AvailabilityService) GenerateAvailableSlots(ctx context.Context, userID
 				endUTC := s0.Add(slotLen)
 				if !endUTC.After(fromUTC) || !startUTC.Before(toUTC) { continue }
 				if !r.Available { continue }
-				candidate = append(candidate, app.Slot{StartUTC: startUTC, EndUTC: endUTC})
+				candidate = append(candidate, Slot{StartUTC: startUTC, EndUTC: endUTC})
 			}
 		}
 	}
@@ -81,7 +86,7 @@ func (s *AvailabilityService) GenerateAvailableSlots(ctx context.Context, userID
 	if err != nil { return nil, err }
 	booked := map[int64]struct{}{}
 	for _, b := range bookings { booked[b.StartAtUTC.Unix()] = struct{}{} }
-	var available []app.Slot
+	var available []Slot
 	for _, sl := range candidate { if _, ok := booked[sl.StartUTC.Unix()]; !ok { available = append(available, sl) } }
 	return available, nil
 }
