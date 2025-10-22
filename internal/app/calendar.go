@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -13,6 +14,10 @@ import (
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/calendar/v3"
 	"google.golang.org/api/option"
+
+	"scheduler-service/internal/models"
+	"scheduler-service/internal/repository/postgres"
+	"scheduler-service/internal/service"
 )
 
 // GoogleCalendarConfig holds OAuth2 configuration
@@ -151,6 +156,7 @@ func (a *App) GetGoogleCalendarEvents(c *gin.Context) {
 	calendarID := c.DefaultQuery("calendar_id", "primary")
 	timeMin := c.Query("time_min") // RFC3339 format
 	timeMax := c.Query("time_max") // RFC3339 format
+	userID := c.Query("user_id")   // target user to create availability/booking for
 	maxResults := int64(250)
 
 	// Build the events call
@@ -173,8 +179,21 @@ func (a *App) GetGoogleCalendarEvents(c *gin.Context) {
 		return
 	}
 
+	// Wire services for creating availability and bookings if user_id is provided
+	var (
+		availSvc   *service.AvailabilityService
+		bookingSvc *service.BookingService
+	)
+	if userID != "" && a.DB != nil {
+		availRepo := postgres.NewAvailabilityRepo()
+		bookingRepo := postgres.NewBookingRepo()
+		availSvc = service.NewAvailabilityService(a.DB, availRepo, bookingRepo)
+		bookingSvc = service.NewBookingService(a.DB, bookingRepo, availSvc)
+	}
+
 	// Convert to our format
 	var calendarEvents []CalendarEvent
+	fmt.Printf("Processing %d events for user_id: %s\n", len(events.Items), userID)
 	for _, item := range events.Items {
 
 		str, _ := json.MarshalIndent(item, "", "")
@@ -272,12 +291,86 @@ func (a *App) GetGoogleCalendarEvents(c *gin.Context) {
 		}
 
 		calendarEvents = append(calendarEvents, event)
+
+		// Debug logging
+		fmt.Printf("Event: %s, MeetingLink: %s, ConferenceData: %+v\n", event.Summary, event.MeetingLink, event.ConferenceData)
+		fmt.Printf("StartTime: %v, EndTime: %v\n", event.StartTime, event.EndTime)
+		fmt.Printf("isGoogleMeetEvent: %v\n", isGoogleMeetEvent(&event))
+
+		// If user_id provided and this is a Google Meet event, create availability and booking
+		if userID != "" && isGoogleMeetEvent(&event) && !event.StartTime.IsZero() && !event.EndTime.IsZero() && bookingSvc != nil && availSvc != nil {
+			fmt.Printf("Creating availability and booking for Google Meet event: %s\n", event.Summary)
+			startUTC := event.StartTime.UTC()
+			endUTC := event.EndTime.UTC()
+			if endUTC.After(startUTC) {
+				// Create a matching availability rule for the specific weekday/time window
+				durMins := int(endUTC.Sub(startUTC).Minutes())
+				if durMins <= 0 {
+					// skip invalid duration
+					fmt.Printf("Skipping invalid duration: %d minutes\n", durMins)
+					continue
+				}
+				rule := models.AvailabilityRule{
+					DayOfWeek:      int(startUTC.Weekday()),
+					StartTime:      startUTC.Format("15:04"),
+					EndTime:        endUTC.Format("15:04"),
+					SlotLengthMins: durMins,
+					Title:          event.Summary,
+					Available:      true,
+				}
+				fmt.Printf("Creating availability rule: %+v\n", rule)
+				availResult, availErr := availSvc.SetAvailability(c.Request.Context(), userID, []models.AvailabilityRule{rule})
+				if availErr != nil {
+					fmt.Printf("Error creating availability: %v\n", availErr)
+				} else {
+					fmt.Printf("Availability created successfully: %+v\n", availResult)
+				}
+
+				// Create booking for this time window
+				bookingParams := service.CreateBookingParams{
+					CandidateEmail: event.Creator,
+					Start:          startUTC,
+					End:            endUTC,
+					Source:         "google_calendar",
+					Type:           "google_meet",
+					Description:    event.MeetingLink,
+					Title:          event.Summary,
+				}
+				fmt.Printf("Creating booking: %+v\n", bookingParams)
+				bookingResult, bookingErr := bookingSvc.CreateBooking(c.Request.Context(), userID, bookingParams)
+				if bookingErr != nil {
+					fmt.Printf("Error creating booking: %v\n", bookingErr)
+				} else {
+					fmt.Printf("Booking created successfully: %+v\n", bookingResult)
+				}
+			}
+		} else {
+			fmt.Printf("Skipping event - userID: %s, isGoogleMeet: %v, hasTimes: %v, hasServices: %v\n",
+				userID, isGoogleMeetEvent(&event), !event.StartTime.IsZero() && !event.EndTime.IsZero(), bookingSvc != nil && availSvc != nil)
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"events": calendarEvents,
 		"count":  len(calendarEvents),
 	})
+}
+
+// isGoogleMeetEvent determines whether an event is a Google Meet
+func isGoogleMeetEvent(e *CalendarEvent) bool {
+	if e == nil {
+		return false
+	}
+	if e.MeetingLink != "" && strings.Contains(strings.ToLower(e.MeetingLink), "meet.google.com") {
+		return true
+	}
+	if e.ConferenceData != nil {
+		name := strings.ToLower(e.ConferenceData.Type)
+		if strings.Contains(name, "hangouts") || strings.Contains(name, "google") || strings.Contains(name, "meet") {
+			return true
+		}
+	}
+	return false
 }
 
 // GetGoogleCalendarList fetches available calendars

@@ -19,14 +19,14 @@ func Build(appInstance *app.App, cfg *config.Config) *gin.Engine {
 	// Reuse existing auth middleware logic
 	r.Use(app.AuthMiddlewareFromEnv())
 
-    api := r.Group("/api")
+	api := r.Group("/api")
 	{
-        availRepo := postgres.NewAvailabilityRepo()
-        bookingRepo := postgres.NewBookingRepo()
-        availService := service.NewAvailabilityService(appInstance.DB, availRepo, bookingRepo)
-        bookingService := service.NewBookingService(appInstance.DB, bookingRepo, availService)
+		availRepo := postgres.NewAvailabilityRepo()
+		bookingRepo := postgres.NewBookingRepo()
+		availService := service.NewAvailabilityService(appInstance.DB, availRepo, bookingRepo)
+		bookingService := service.NewBookingService(appInstance.DB, bookingRepo, availService)
 
-        availHandlers := &handlers.AvailabilityHandlers{App: appInstance, AvailSv: availService, BookSv: bookingService}
+		availHandlers := &handlers.AvailabilityHandlers{DB: appInstance.DB, AvailSv: availService, BookSv: bookingService}
 
 		users := api.Group("/users")
 		{
@@ -52,5 +52,3 @@ func Build(appInstance *app.App, cfg *config.Config) *gin.Engine {
 
 	return r
 }
-
-

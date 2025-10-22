@@ -6,13 +6,14 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
-	"scheduler-service/internal/app"
+	"scheduler-service/internal/models"
 	"scheduler-service/internal/service"
 )
 
 type AvailabilityHandlers struct {
-	App     *app.App
+	DB      *pgxpool.Pool
 	AvailSv *service.AvailabilityService
 	BookSv  *service.BookingService
 }
@@ -20,7 +21,7 @@ type AvailabilityHandlers struct {
 // POST /users/:id/availability
 func (h *AvailabilityHandlers) SetAvailability(c *gin.Context) {
 	userID := c.Param("id")
-	var payload []app.AvailabilityRule
+	var payload []models.AvailabilityRule
 	if err := c.BindJSON(&payload); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -38,7 +39,7 @@ func (h *AvailabilityHandlers) UpdateAvailability(c *gin.Context) {
 	userID := c.Param("id")
 	ruleID := c.Param("rule_id")
 
-	var payload app.AvailabilityRule
+	var payload models.AvailabilityRule
 	if err := c.BindJSON(&payload); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -213,28 +214,36 @@ func (h *AvailabilityHandlers) CreateBooking(c *gin.Context) {
 // DELETE /bookings/:id
 func (h *AvailabilityHandlers) CancelBooking(c *gin.Context) {
 	id := c.Param("id")
-    if err := h.BookSv.CancelBooking(c.Request.Context(), id); err != nil {
-        if err == pgx.ErrNoRows || err.Error() == "booking not found" {
-            c.JSON(http.StatusNotFound, gin.H{"error": "booking not found"})
-            return
-        }
-        if err.Error() == "already cancelled" {
-            c.JSON(http.StatusConflict, gin.H{"error": "booking not found"})
-            return
-        }
+	if err := h.BookSv.CancelBooking(c.Request.Context(), id); err != nil {
+		if err == pgx.ErrNoRows || err.Error() == "booking not found" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "booking not found"})
+			return
+		}
+		if err.Error() == "already cancelled" {
+			c.JSON(http.StatusConflict, gin.H{"error": "booking not found"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-func validateAvailabilityRule(rule *app.AvailabilityRule) error { return serviceValidateAvailabilityRule(rule) }
-func serviceValidateAvailabilityRule(rule *app.AvailabilityRule) error {
+func validateAvailabilityRule(rule *models.AvailabilityRule) error {
+	return serviceValidateAvailabilityRule(rule)
+}
+func serviceValidateAvailabilityRule(rule *models.AvailabilityRule) error {
 	startTime, err := time.Parse("15:04", rule.StartTime)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	endTime, err := time.Parse("15:04", rule.EndTime)
-	if err != nil { return err }
-	if !endTime.After(startTime) { return pgx.ErrNoRows }
+	if err != nil {
+		return err
+	}
+	if !endTime.After(startTime) {
+		return pgx.ErrNoRows
+	}
 	return nil
 }
 
@@ -249,5 +258,3 @@ func serviceCreateReq(req createBookingReq, start, end time.Time) service.Create
 		Title:          req.Title,
 	}
 }
-
-

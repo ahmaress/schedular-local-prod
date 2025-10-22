@@ -7,7 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"scheduler-service/internal/app"
+	"scheduler-service/internal/models"
 	"scheduler-service/internal/repository"
 )
 
@@ -22,12 +22,12 @@ func NewBookingService(db repository.Querier, repo repository.BookingRepository,
 	return &BookingService{DB: db, Repo: repo, Avail: avail}
 }
 
-func (s *BookingService) ListBookings(ctx context.Context, userID string, from, to time.Time, filtered bool) ([]app.Booking, error) {
+func (s *BookingService) ListBookings(ctx context.Context, userID string, from, to time.Time, filtered bool) ([]models.Booking, error) {
 	return s.Repo.ListBookings(ctx, s.DB, userID, from, to, filtered)
 }
 
-func (s *BookingService) CreateBooking(ctx context.Context, userID string, req CreateBookingParams) (app.Booking, error) {
-	var out app.Booking
+func (s *BookingService) CreateBooking(ctx context.Context, userID string, req CreateBookingParams) (models.Booking, error) {
+	var out models.Booking
 	start := req.Start.UTC()
 	end := req.End.UTC()
 
@@ -65,7 +65,7 @@ func (s *BookingService) CreateBooking(ctx context.Context, userID string, req C
 		return out, errors.New("slot not available")
 	}
 
-	b := &app.Booking{UserID: userID, CandidateEmail: req.CandidateEmail, StartAtUTC: start, EndAtUTC: end, Source: req.Source, Type: req.Type, Description: req.Description, Title: req.Title, Status: "confirmed", CreatedAt: time.Now().UTC()}
+	b := &models.Booking{UserID: userID, CandidateEmail: req.CandidateEmail, StartAtUTC: start, EndAtUTC: end, Source: req.Source, Type: req.Type, Description: req.Description, Title: req.Title, Status: "confirmed", CreatedAt: time.Now().UTC()}
 	newID, err := s.Repo.InsertBooking(ctx, trx, b)
 	if err != nil {
 		return out, err

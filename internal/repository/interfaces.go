@@ -6,7 +6,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"scheduler-service/internal/app"
+	"scheduler-service/internal/models"
 )
 
 // Querier abstracts pgx pool/tx for easier testing and transactions.
@@ -17,16 +17,16 @@ type Querier interface {
 }
 
 type AvailabilityRepository interface {
-	InsertAvailabilityRule(ctx context.Context, q Querier, r *app.AvailabilityRule) error
-	ListAvailabilityRules(ctx context.Context, q Querier, userID string) ([]app.AvailabilityRule, error)
-	UpdateAvailabilityRule(ctx context.Context, q Querier, userID, ruleID string, r *app.AvailabilityRule) (string, error)
+	InsertAvailabilityRule(ctx context.Context, q Querier, r *models.AvailabilityRule) error
+	ListAvailabilityRules(ctx context.Context, q Querier, userID string) ([]models.AvailabilityRule, error)
+	UpdateAvailabilityRule(ctx context.Context, q Querier, userID, ruleID string, r *models.AvailabilityRule) (string, error)
 }
 
 type BookingRepository interface {
-	ListBookingsInRange(ctx context.Context, q Querier, userID string, from, to AppTime) ([]app.Booking, error)
-	ListBookings(ctx context.Context, q Querier, userID string, from, to AppTime, filtered bool) ([]app.Booking, error)
+	ListBookingsInRange(ctx context.Context, q Querier, userID string, from, to AppTime) ([]models.Booking, error)
+	ListBookings(ctx context.Context, q Querier, userID string, from, to AppTime, filtered bool) ([]models.Booking, error)
 	CheckExistingBookingAtStart(ctx context.Context, q Querier, userID string, start AppTime) (string, error)
-	InsertBooking(ctx context.Context, q Querier, b *app.Booking) (string, error)
+	InsertBooking(ctx context.Context, q Querier, b *models.Booking) (string, error)
 	GetBookingStatus(ctx context.Context, q Querier, id string) (string, error)
 	CancelBooking(ctx context.Context, q Querier, id string) (int64, error)
 }

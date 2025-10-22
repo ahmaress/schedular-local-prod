@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"scheduler-service/internal/app"
+	"scheduler-service/internal/models"
 	"scheduler-service/internal/repository"
 )
 
@@ -12,7 +12,7 @@ type AvailabilityRepo struct{}
 
 func NewAvailabilityRepo() *AvailabilityRepo { return &AvailabilityRepo{} }
 
-func (r *AvailabilityRepo) InsertAvailabilityRule(ctx context.Context, q repository.Querier, ar *app.AvailabilityRule) error {
+func (r *AvailabilityRepo) InsertAvailabilityRule(ctx context.Context, q repository.Querier, ar *models.AvailabilityRule) error {
 	now := time.Now().UTC()
 	query := `INSERT INTO availability_rules
 		(id, user_id, day_of_week, start_time, end_time, slot_length_minutes, title, available, created_at, updated_at)
@@ -23,15 +23,17 @@ func (r *AvailabilityRepo) InsertAvailabilityRule(ctx context.Context, q reposit
 	).Scan(&ar.ID)
 }
 
-func (r *AvailabilityRepo) ListAvailabilityRules(ctx context.Context, q repository.Querier, userID string) ([]app.AvailabilityRule, error) {
+func (r *AvailabilityRepo) ListAvailabilityRules(ctx context.Context, q repository.Querier, userID string) ([]models.AvailabilityRule, error) {
 	query := `SELECT id,user_id,day_of_week,start_time,end_time,slot_length_minutes,title,available,created_at,updated_at
 		      FROM availability_rules WHERE user_id=$1 ORDER BY id`
 	rows, err := q.Query(ctx, query, userID)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	defer rows.Close()
-	var out []app.AvailabilityRule
+	var out []models.AvailabilityRule
 	for rows.Next() {
-		var r app.AvailabilityRule
+		var r models.AvailabilityRule
 		var start, end string
 		if err := rows.Scan(&r.ID, &r.UserID, &r.DayOfWeek, &start, &end,
 			&r.SlotLengthMins, &r.Title, &r.Available, &r.CreatedAt, &r.UpdatedAt); err != nil {
@@ -44,7 +46,7 @@ func (r *AvailabilityRepo) ListAvailabilityRules(ctx context.Context, q reposito
 	return out, nil
 }
 
-func (r *AvailabilityRepo) UpdateAvailabilityRule(ctx context.Context, q repository.Querier, userID, ruleID string, ar *app.AvailabilityRule) (string, error) {
+func (r *AvailabilityRepo) UpdateAvailabilityRule(ctx context.Context, q repository.Querier, userID, ruleID string, ar *models.AvailabilityRule) (string, error) {
 	now := time.Now().UTC()
 	query := `UPDATE availability_rules
 		SET start_time=$1, end_time=$2, slot_length_minutes=$3,
@@ -58,5 +60,3 @@ func (r *AvailabilityRepo) UpdateAvailabilityRule(ctx context.Context, q reposit
 	).Scan(&updatedID)
 	return updatedID, err
 }
-
-
