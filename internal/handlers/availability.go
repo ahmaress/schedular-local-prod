@@ -31,7 +31,33 @@ func (h *AvailabilityHandlers) SetAvailability(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusCreated, saved)
+	// Only include created_at_utc in response
+	type CreatedAvailability struct {
+		ID             string    `json:"id"`
+		UserID         string    `json:"user_id"`
+		DayOfWeek      int       `json:"day_of_week"`
+		StartTime      string    `json:"start_time"`
+		EndTime        string    `json:"end_time"`
+		SlotLengthMins int       `json:"slot_length_minutes"`
+		Title          string    `json:"title,omitempty"`
+		Available      bool      `json:"available"`
+		CreatedAtUTC   time.Time `json:"created_at_utc"`
+	}
+	var filtered []CreatedAvailability
+	for _, rule := range saved {
+		filtered = append(filtered, CreatedAvailability{
+			ID:             rule.ID,
+			UserID:         rule.UserID,
+			DayOfWeek:      rule.DayOfWeek,
+			StartTime:      rule.StartTime,
+			EndTime:        rule.EndTime,
+			SlotLengthMins: rule.SlotLengthMins,
+			Title:          rule.Title,
+			Available:      rule.Available,
+			CreatedAtUTC:   rule.CreatedAt,
+		})
+	}
+	c.JSON(http.StatusCreated, filtered)
 }
 
 // PUT /users/:id/availability/:rule_id
@@ -53,7 +79,30 @@ func (h *AvailabilityHandlers) UpdateAvailability(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, res)
+	// Only include updated_at_utc in response
+	type UpdatedAvailability struct {
+		ID             string    `json:"id"`
+		UserID         string    `json:"user_id"`
+		DayOfWeek      int       `json:"day_of_week"`
+		StartTime      string    `json:"start_time"`
+		EndTime        string    `json:"end_time"`
+		SlotLengthMins int       `json:"slot_length_minutes"`
+		Title          string    `json:"title,omitempty"`
+		Available      bool      `json:"available"`
+		UpdatedAtUTC   time.Time `json:"updated_at_utc"`
+	}
+	filtered := UpdatedAvailability{
+		ID:             res.ID,
+		UserID:         res.UserID,
+		DayOfWeek:      res.DayOfWeek,
+		StartTime:      res.StartTime,
+		EndTime:        res.EndTime,
+		SlotLengthMins: res.SlotLengthMins,
+		Title:          res.Title,
+		Available:      res.Available,
+		UpdatedAtUTC:   res.UpdatedAt,
+	}
+	c.JSON(http.StatusOK, filtered)
 }
 
 // GET /users/:id/availability

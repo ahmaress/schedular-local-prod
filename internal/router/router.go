@@ -47,6 +47,7 @@ func Build(appInstance *app.App, cfg *config.Config) *gin.Engine {
 			calendar.GET("/events", appInstance.GetGoogleCalendarEvents)
 			calendar.GET("/calendars", appInstance.GetGoogleCalendarList)
 			calendar.POST("/refresh-token", appInstance.RefreshGoogleToken)
+			calendar.POST("/interview", appInstance.CreateInterviewEvent)
 		}
 	}
 

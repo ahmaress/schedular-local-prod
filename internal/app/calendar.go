@@ -62,7 +62,7 @@ func InitGoogleCalendarConfig() *GoogleCalendarConfig {
 		ClientSecret: clientSecret,
 		RedirectURL:  redirectURL,
 		Scopes: []string{
-			calendar.CalendarReadonlyScope,
+			calendar.CalendarScope,
 		},
 		Endpoint: google.Endpoint,
 	}
@@ -435,6 +435,158 @@ func (a *App) GetGoogleCalendarList(c *gin.Context) {
 		"calendars": calendars,
 		"count":     len(calendars),
 	})
+}
+
+// CreateInterviewEvent creates a Google Meet event in Google Calendar
+func (a *App) CreateInterviewEvent(c *gin.Context) {
+	// Get token from request
+	tokenStr := c.GetHeader("X-Google-Token")
+	if tokenStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Google token required in X-Google-Token header"})
+		return
+	}
+
+	var token oauth2.Token
+	if err := json.Unmarshal([]byte(tokenStr), &token); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid token format"})
+		return
+	}
+
+	// Parse interview event from request body
+	var interviewEvent InterviewEvent
+	if err := c.ShouldBindJSON(&interviewEvent); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Validate required fields
+	if interviewEvent.CandidateName == "" || interviewEvent.CandidateEmail == "" ||
+		interviewEvent.Position == "" || interviewEvent.Stage == "" ||
+		interviewEvent.Mode == "" || interviewEvent.InterviewerEmail == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing required fields"})
+		return
+	}
+
+	// Set default values
+	if interviewEvent.Status == "" {
+		interviewEvent.Status = "scheduled"
+	}
+	if interviewEvent.Duration == 0 {
+		interviewEvent.Duration = 60 // Default 1 hour
+	}
+
+	calendarConfig := InitGoogleCalendarConfig()
+	if calendarConfig == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Google Calendar not configured"})
+		return
+	}
+
+	// Create HTTP client with token
+	client := calendarConfig.Config.Client(context.Background(), &token)
+
+	// Create Calendar service
+	srv, err := calendar.NewService(context.Background(), option.WithHTTPClient(client))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create calendar service"})
+		return
+	}
+
+	// Prepare event details
+	startTime := interviewEvent.DateTime
+	endTime := startTime.Add(time.Duration(interviewEvent.Duration) * time.Minute)
+
+	// Create event title
+	eventTitle := fmt.Sprintf("%s Interview - %s (%s)", interviewEvent.Position, interviewEvent.CandidateName, interviewEvent.Stage)
+
+	// Create event description
+	description := fmt.Sprintf(`Interview Details:
+Candidate: %s (%s)
+Position: %s
+Stage: %s
+Interviewer: %s
+Mode: %s
+Status: %s`,
+		interviewEvent.CandidateName, interviewEvent.CandidateEmail,
+		interviewEvent.Position, interviewEvent.Stage,
+		interviewEvent.InterviewerEmail, interviewEvent.Mode, interviewEvent.Status)
+
+	if interviewEvent.Description != "" {
+		description += "\n\nAdditional Notes:\n" + interviewEvent.Description
+	}
+
+	// Create Google Calendar event
+	event := &calendar.Event{
+		Summary:     eventTitle,
+		Description: description,
+		Start: &calendar.EventDateTime{
+			DateTime: startTime.Format(time.RFC3339),
+			TimeZone: "UTC",
+		},
+		End: &calendar.EventDateTime{
+			DateTime: endTime.Format(time.RFC3339),
+			TimeZone: "UTC",
+		},
+		Attendees: []*calendar.EventAttendee{
+			{Email: interviewEvent.CandidateEmail, DisplayName: interviewEvent.CandidateName},
+			{Email: interviewEvent.InterviewerEmail},
+		},
+		Reminders: &calendar.EventReminders{  // ← Move this INSIDE the struct
+			UseDefault: true,
+		},
+	}
+
+	// Add Google Meet conference if mode is "google"
+	if interviewEvent.Mode == "google" {
+		event.ConferenceData = &calendar.ConferenceData{
+			CreateRequest: &calendar.CreateConferenceRequest{
+				RequestId: fmt.Sprintf("interview-%s-%d", interviewEvent.CandidateEmail, time.Now().Unix()),
+				ConferenceSolutionKey: &calendar.ConferenceSolutionKey{
+					Type: "hangoutsMeet",
+				},
+			},
+		}
+	}
+
+	// Add location if provided
+	if interviewEvent.Location != "" {
+		event.Location = interviewEvent.Location
+	} else if interviewEvent.Mode == "google" {
+		event.Location = "Google Meet"
+	}
+
+	// Create the event
+	calendarID := c.DefaultQuery("calendar_id", "primary")
+	createdEvent, err := srv.Events.Insert(calendarID, event).ConferenceDataVersion(1).Do()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to create event: %v", err)})
+		return
+	}
+
+	// Extract meeting link if available
+	meetingLink := ""
+	if createdEvent.HangoutLink != "" {
+		meetingLink = createdEvent.HangoutLink
+	} else if createdEvent.ConferenceData != nil && len(createdEvent.ConferenceData.EntryPoints) > 0 {
+		for _, entryPoint := range createdEvent.ConferenceData.EntryPoints {
+			if entryPoint.EntryPointType == "video" && entryPoint.Uri != "" {
+				meetingLink = entryPoint.Uri
+				break
+			}
+		}
+	}
+
+	// Return success response
+	response := gin.H{
+		"message":      "Interview event created successfully",
+		"event_id":     createdEvent.Id,
+		"event_title":  createdEvent.Summary,
+		"start_time":   createdEvent.Start.DateTime,
+		"end_time":     createdEvent.End.DateTime,
+		"meeting_link": meetingLink,
+		"attendees":    []string{interviewEvent.CandidateEmail, interviewEvent.InterviewerEmail},
+	}
+
+	c.JSON(http.StatusCreated, response)
 }
 
 // RefreshGoogleToken refreshes an expired Google OAuth token

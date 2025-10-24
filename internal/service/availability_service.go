@@ -29,6 +29,9 @@ func (s *AvailabilityService) SetAvailability(ctx context.Context, userID string
 	var saved []models.AvailabilityRule
 	for i := range rules {
 		rules[i].UserID = userID
+		now := time.Now().UTC()
+		rules[i].CreatedAt = now
+		rules[i].UpdatedAt = now
 		if err := validateAvailabilityRule(&rules[i]); err != nil {
 			return nil, err
 		}
@@ -41,6 +44,15 @@ func (s *AvailabilityService) SetAvailability(ctx context.Context, userID string
 }
 
 func (s *AvailabilityService) UpdateAvailability(ctx context.Context, userID, ruleID string, rule *models.AvailabilityRule) (*models.AvailabilityRule, error) {
+	// Fetch existing rule first
+	existing, err := s.Avail.GetAvailabilityRule(ctx, s.DB, userID, ruleID)
+	if err != nil {
+		return nil, err
+	}
+	// If day_of_week is zero, preserve the original value
+	if rule.DayOfWeek == 0 {
+		rule.DayOfWeek = existing.DayOfWeek
+	}
 	if err := validateAvailabilityRule(rule); err != nil {
 		return nil, err
 	}
@@ -48,11 +60,12 @@ func (s *AvailabilityService) UpdateAvailability(ctx context.Context, userID, ru
 	if err != nil {
 		return nil, err
 	}
-	now := time.Now().UTC()
-	rule.ID = id
-	rule.UserID = userID
-	rule.UpdatedAt = now
-	return rule, nil
+	// Fetch the updated record from database to get correct timestamps
+	updatedRule, err := s.Avail.GetAvailabilityRule(ctx, s.DB, userID, id)
+	if err != nil {
+		return nil, err
+	}
+	return updatedRule, nil
 }
 
 func (s *AvailabilityService) ListAvailability(ctx context.Context, userID string) ([]models.AvailabilityRule, error) {
